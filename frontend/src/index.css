@@ -1,0 +1,29 @@
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700;800&family=Kalam:wght@400;700&family=Playfair+Display:wght@400;600;700&family=Inter:wght@400;500;600&display=swap');
+
+@font-face {
+  font-family: 'PastelCrayon';
+  src: url('/fonts/pastel-crayon.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: 'PastelCrayon', 'Caveat', cursive;
+  background-color: #fdf8f0;
+  color: #1a1a1a;
+}
+
+/* Reset to clean sans-serif for contexts that need full readability */
+.font-readable {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+#root {
+  min-height: 100vh;
+}

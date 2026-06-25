@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Local env files — never commit these
+frontend/.env.local
+frontend/.env
+backend/worker/.dev.vars
+
+# Build output
+frontend/dist/
+
+# OS
+.DS_Store
