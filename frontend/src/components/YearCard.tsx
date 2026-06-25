@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Reunion } from '../lib/types'
 
@@ -6,19 +7,24 @@ interface Props {
   index: number
 }
 
-// Cycling post-it colours
-const NOTE_BG   = ['#FEF9C3', '#D1FAE5', '#DBEAFE', '#FCE7F3', '#FEF3C7']
-const NOTE_LINE = ['#FDE047', '#6EE7B7', '#93C5FD', '#F9A8D4', '#FCD34D']
-const NOTE_TEXT = ['#78350F', '#065F46', '#1E3A8A', '#831843', '#78350F']
-// Slight alternating rotations for that stuck-to-a-board look
-const ROTATIONS = [-2.5, 1.8, -1.2, 2.2, -0.8]
+const NOTE_THEMES = [
+  { bg: '#FEF9C3', line: '#FDE047', text: '#78350F' }, // yellow
+  { bg: '#D1FAE5', line: '#6EE7B7', text: '#065F46' }, // green
+  { bg: '#DBEAFE', line: '#93C5FD', text: '#1E3A8A' }, // blue
+  { bg: '#FCE7F3', line: '#F9A8D4', text: '#831843' }, // pink
+  { bg: '#FEE2E2', line: '#FCA5A5', text: '#7F1D1D' }, // red
+  { bg: '#EDE9FE', line: '#C4B5FD', text: '#4C1D95' }, // purple
+  { bg: '#FFEDD5', line: '#FDBA74', text: '#7C2D12' }, // orange
+  { bg: '#ECFCCB', line: '#A3E635', text: '#365314' }, // lime
+]
 
-export default function YearCard({ reunion, index }: Props) {
-  const navigate  = useNavigate()
-  const bg        = NOTE_BG[index % NOTE_BG.length]
-  const line      = NOTE_LINE[index % NOTE_LINE.length]
-  const textColor = NOTE_TEXT[index % NOTE_TEXT.length]
-  const rot       = ROTATIONS[index % ROTATIONS.length]
+export default function YearCard({ reunion }: Props) {
+  const navigate = useNavigate()
+  const { bg, line, text: textColor } = useMemo(
+    () => NOTE_THEMES[Math.floor(Math.random() * NOTE_THEMES.length)],
+    [],
+  )
+  const rot = useMemo(() => Math.random() * 6 - 3, [])
 
   return (
     <button

@@ -42,7 +42,7 @@ export default function Reunion() {
   }
 
   const theme = getReunionTheme(reunion.theme_slug)
-  const titleWords = ['Hussaini', 'Family', 'Reunion', String(reunion.year)]
+  const titleWords = ['Family', 'Reunion', String(reunion.year)]
   const { coreColors } = theme
 
   return (

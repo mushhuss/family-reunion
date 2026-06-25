@@ -339,7 +339,8 @@ function MediaTab({ token }: { token: string }) {
   const [reunions, setReunions] = useState<Reunion[]>([])
   const [items, setItems] = useState<Media[]>([])
   const [rid, setRid] = useState('')
-  const [deleting, setDeleting] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<Set<string>>(new Set())
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     getReunions().then(data => { setReunions(data); if (data[0]) setRid(data[0].id) })
@@ -351,52 +352,125 @@ function MediaTab({ token }: { token: string }) {
   }
   useEffect(() => { if (rid) load(rid) }, [rid])
 
-  const remove = async (id: string) => {
-    if (!confirm('Delete this photo/video? This cannot be undone.')) return
-    setDeleting(id)
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const selectAll = () => setSelected(new Set(items.map(i => i.id)))
+  const clearSelection = () => setSelected(new Set())
+
+  const removeSingle = async (id: string) => {
+    setDeleting(prev => new Set(prev).add(id))
     try {
       await deleteMedia(id, token)
       setItems(prev => prev.filter(i => i.id !== id))
-    } finally { setDeleting(null) }
+      setSelected(prev => { const next = new Set(prev); next.delete(id); return next })
+    } finally {
+      setDeleting(prev => { const next = new Set(prev); next.delete(id); return next })
+    }
+  }
+
+  const removeSelected = async () => {
+    if (!confirm(`Delete ${selected.size} item${selected.size !== 1 ? 's' : ''}? This cannot be undone.`)) return
+    await Promise.all(Array.from(selected).map(id => removeSingle(id)))
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <ReunionPicker reunions={reunions} value={rid} onChange={setRid} />
+
+      {items.length > 0 && (
+        <div className="flex items-center gap-3 min-h-[32px]">
+          {selected.size > 0 ? (
+            <>
+              <span className="text-sm text-gray-600">{selected.size} selected</span>
+              <button onClick={selectAll} className="text-sm text-reunion-600 hover:underline">Select all</button>
+              <button onClick={clearSelection} className="text-sm text-gray-400 hover:underline">Clear</button>
+              <button
+                onClick={removeSelected}
+                className="ml-auto flex items-center gap-1.5 rounded-lg bg-red-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-600 transition-colors"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete {selected.size}
+              </button>
+            </>
+          ) : (
+            <button onClick={selectAll} className="text-sm text-reunion-600 hover:underline">Select all</button>
+          )}
+        </div>
+      )}
+
       {items.length === 0 ? (
         <p className="text-sm text-gray-400 text-center py-6">No media uploaded yet.</p>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {items.map(item => (
-            <div key={item.id} className="relative group rounded-xl overflow-hidden border border-reunion-100 bg-white shadow-sm">
-              {item.type === 'video' ? (
-                <div className="relative aspect-video bg-gray-100">
-                  <video src={item.url} preload="metadata" muted playsInline className="w-full h-full object-cover" />
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                    <PlayCircle className="h-8 w-8 text-white drop-shadow" />
+          {items.map(item => {
+            const isSelected = selected.has(item.id)
+            const isDeleting = deleting.has(item.id)
+            return (
+              <div
+                key={item.id}
+                onClick={() => toggleSelect(item.id)}
+                className={`relative group rounded-xl overflow-hidden border-2 cursor-pointer transition-all bg-white shadow-sm ${
+                  isSelected ? 'border-reunion-500 ring-2 ring-reunion-300' : 'border-reunion-100 hover:border-reunion-300'
+                }`}
+              >
+                {/* Selection checkbox */}
+                <div className={`absolute top-1.5 left-1.5 z-10 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                  isSelected
+                    ? 'bg-reunion-500 border-reunion-500'
+                    : 'bg-white/80 border-gray-300 opacity-0 group-hover:opacity-100'
+                }`}>
+                  {isSelected && (
+                    <svg className="h-3 w-3 text-white" viewBox="0 0 12 12" fill="none">
+                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+
+                {item.type === 'video' ? (
+                  <div className="relative aspect-video bg-gray-100">
+                    <video src={item.url} preload="metadata" muted playsInline className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                      <PlayCircle className="h-8 w-8 text-white drop-shadow" />
+                    </div>
                   </div>
+                ) : (
+                  <div className="aspect-square bg-gray-100">
+                    <img src={item.url} alt={item.caption ?? ''} className="w-full h-full object-cover" loading="lazy" />
+                  </div>
+                )}
+
+                {item.caption && (
+                  <p className="px-2 py-1 text-xs text-gray-500 truncate">{item.caption}</p>
+                )}
+
+                {/* Single-item delete button */}
+                <div className="absolute top-1.5 right-1.5 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={e => { e.stopPropagation(); removeSingle(item.id) }}
+                    disabled={isDeleting}
+                    className="rounded-full bg-black/60 p-1.5 text-white hover:bg-red-600 transition-colors disabled:opacity-50"
+                  >
+                    {isDeleting
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <Trash2 className="h-3.5 w-3.5" />}
+                  </button>
                 </div>
-              ) : (
-                <div className="aspect-square bg-gray-100">
-                  <img src={item.url} alt={item.caption ?? ''} className="w-full h-full object-cover" loading="lazy" />
-                </div>
-              )}
-              {item.caption && (
-                <p className="px-2 py-1 text-xs text-gray-500 truncate">{item.caption}</p>
-              )}
-              <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  onClick={() => remove(item.id)}
-                  disabled={deleting === item.id}
-                  className="rounded-full bg-black/60 p-1.5 text-white hover:bg-red-600 transition-colors disabled:opacity-50"
-                >
-                  {deleting === item.id
-                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    : <Trash2 className="h-3.5 w-3.5" />}
-                </button>
+
+                {/* Deleting overlay */}
+                {isDeleting && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-20">
+                    <Loader2 className="h-6 w-6 text-white animate-spin" />
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

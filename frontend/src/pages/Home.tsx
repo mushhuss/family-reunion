@@ -9,7 +9,7 @@ import { pickTitleColors, THEMES } from '../lib/themes'
 export default function Home() {
   const [reunions, setReunions] = useState<Reunion[]>([])
   const [loading, setLoading] = useState(true)
-  const titleColors = useMemo(() => pickTitleColors(3, THEMES.default.titlePalette), [])
+  const titleColors = useMemo(() => pickTitleColors(2, THEMES.default.titlePalette), [])
 
   useEffect(() => {
     getReunions()
@@ -29,13 +29,13 @@ export default function Home() {
           className="font-crayon leading-tight tracking-wide"
           style={{ fontSize: 'clamp(2.8rem, 9.5vw, 6.5rem)' }}
         >
-          {['Hussaini', 'Family', 'Reunion'].map((word, i) => (
+          {['Family', 'Reunion'].map((word, i) => (
             <span
               key={word}
               className="inline-block"
               style={{
                 color: titleColors[i],
-                transform: `rotate(${[-1.4, 0.9, -0.7][i]}deg)`,
+                transform: `rotate(${[-1.4, 0.9][i]}deg)`,
                 textShadow: '2px 3px 0 rgba(0,0,0,0.10)',
               }}
             >
