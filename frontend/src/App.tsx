@@ -1,3 +1,6 @@
+// Root router — defines all client-side routes.
+// frontend/vercel.json rewrites every path to /index.html so React Router handles navigation;
+// without that rewrite, any direct URL or page refresh would 404 on Vercel.
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Home from './pages/Home'
 import Reunion from './pages/Reunion'

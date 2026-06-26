@@ -1,3 +1,5 @@
+// Public links & resources page — fetches links for the year (sorted by sort_order)
+// and renders them as a responsive card grid via LinksList.
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'

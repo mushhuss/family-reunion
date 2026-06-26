@@ -1,3 +1,6 @@
+// Clickable navigation tile used on the Reunion hub (Photos / Programs / Links).
+// Each pillar receives a unique `color` from theme.coreColors; the border and icon background
+// are tinted versions of that color using hex opacity suffixes (40 = 25%, 18 = ~9%).
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ReunionTheme } from '../lib/themes'

@@ -1,3 +1,7 @@
+// Decorative SVG sun positioned at the top-right corner of the Home page (aria-hidden).
+// Absolutely positioned, z-0, so it sits behind all content. Alternating long/short rays
+// (even/odd index) give a star-like silhouette.
+
 const RAYS = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
 
 export default function HomeSun() {

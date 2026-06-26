@@ -1,3 +1,5 @@
+// Landing page — displays the "Family Reunion" hero title and a post-it note picker for reunion years.
+// Decoration components (HomeSun, HomeGarden) are purely visual SVGs, aria-hidden.
 import { useEffect, useMemo, useState } from 'react'
 import { getReunions } from '../lib/api'
 import type { Reunion } from '../lib/types'
@@ -9,6 +11,8 @@ import { pickTitleColors, THEMES } from '../lib/themes'
 export default function Home() {
   const [reunions, setReunions] = useState<Reunion[]>([])
   const [loading, setLoading] = useState(true)
+  // useMemo with [] keeps the title colors stable for the lifetime of this component instance
+  // (different on each page load, but never re-rolling mid-session from re-renders).
   const titleColors = useMemo(() => pickTitleColors(2, THEMES.default.titlePalette), [])
 
   useEffect(() => {

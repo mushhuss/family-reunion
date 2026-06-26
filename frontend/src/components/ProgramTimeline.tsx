@@ -1,3 +1,6 @@
+// Public program schedule — groups events by date and renders colored day tabs.
+// Events with null event_date are grouped under the key 'tbd' and shown as a "General" tab.
+// TAB_COLORS cycles through 5 colors; mirrors the same constant used in AdminDashboard.tsx.
 import { useEffect, useState } from 'react'
 import { Clock, MapPin } from 'lucide-react'
 import type { ProgramEvent } from '../lib/types'
@@ -15,6 +18,8 @@ function formatTime(t: string | null) {
 }
 
 function formatDayHeader(dateStr: string) {
+  // Appending T00:00:00 forces local-time parsing — without it, 'YYYY-MM-DD' is parsed
+  // as UTC midnight and can show the wrong day depending on the viewer's timezone.
   const d = new Date(dateStr + 'T00:00:00')
   return {
     weekday: d.toLocaleDateString([], { weekday: 'long' }),

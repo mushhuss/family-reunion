@@ -1,3 +1,6 @@
+// Sticky-note style card for each reunion year on the Home page.
+// Color and rotation are randomized via useMemo so they vary per page load
+// but stay stable across re-renders within the same session.
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Reunion } from '../lib/types'

@@ -1,3 +1,7 @@
+// Full-width SVG garden scene rendered at the bottom of the Home page (aria-hidden, decorative).
+// Sub-components (Flower, GrassBlade, Cloud) are SVG-only helpers used inside the main <svg>.
+// All coordinates are in a 1440×290 viewBox that scales to 100% container width.
+
 // ─── Sub-shapes (all return SVG elements, used inside <svg>) ─────────────────
 
 type FlowerProps = { x: number; y: number; color: string; accent?: string; size?: number }

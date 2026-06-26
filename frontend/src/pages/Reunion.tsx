@@ -1,3 +1,5 @@
+// Reunion hub page — shows the 3-pillar navigation (Photos / Programs / Links)
+// and a Contacts modal trigger. One page per reunion year (/:year route).
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Camera, Gamepad2, FileText, Users, ArrowLeft } from 'lucide-react'

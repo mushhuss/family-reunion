@@ -1,3 +1,7 @@
+// Admin login page — validates password against the Worker's ADMIN_SECRET via POST /admin/check.
+// On success, stores the raw password in sessionStorage as 'adminToken' so AdminDashboard
+// can attach it as a Bearer token on every admin API call. Auth lives only in sessionStorage
+// (cleared when the tab closes); the correct password never reaches the browser in any response.
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Lock, Loader2 } from 'lucide-react'

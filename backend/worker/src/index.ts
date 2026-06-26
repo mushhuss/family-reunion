@@ -1,3 +1,12 @@
+// Cloudflare Worker API — the single backend for the entire site.
+// Built with Hono (lightweight router). Handles:
+//   - All public data reads (reunions, media, program, links, contacts)
+//   - Photo/video uploads to R2 + metadata insert into Supabase
+//   - Admin CRUD (protected by Authorization: Bearer <ADMIN_SECRET>)
+//
+// The Supabase service key lives only here — never in the frontend.
+// Secrets (ADMIN_SECRET, SUPABASE_SERVICE_KEY) are set via `wrangler secret put`.
+// Non-secret config (SUPABASE_URL, BUCKET_PUBLIC_URL) lives in wrangler.toml.
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { createClient } from '@supabase/supabase-js'
@@ -61,7 +70,10 @@ app.get('/api/reunions/:year/media', async (c) => {
   const reunion = await getReunionByYear(c.env, c.req.param('year'))
   if (!reunion) return c.json([])
   const { data } = await db(c.env)
-    .from('media').select('id, url, type, caption, uploaded_by')
+    .from('media')
+    // Explicit column list — avoids fetching r2_key and reunion_id which the frontend never uses.
+    // thumb_url is intentionally included: gallery displays it instead of the full original.
+    .select('id, url, thumb_url, type, caption, uploaded_by')
     .eq('reunion_id', reunion.id)
     .order('created_at', { ascending: false })
   return c.json(data ?? [])
@@ -137,7 +149,8 @@ app.post('/upload', async (c) => {
 
   const mediaType = isVideo ? 'video' : 'photo'
   const ext = EXT_MAP[file.type]
-  const key = `${year}/${mediaType}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`
+  const uid = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
+  const key = `${year}/${mediaType}/${uid}.${ext}`
 
   await c.env.BUCKET.put(key, file.stream(), {
     httpMetadata: { contentType: file.type },
@@ -145,16 +158,31 @@ app.post('/upload', async (c) => {
 
   const url = `${c.env.BUCKET_PUBLIC_URL}/${key}`
 
+  // Optional browser-generated thumbnail — PhotoUpload.tsx generates this via Canvas API
+  // before the upload starts. For images: 1200px JPEG resize. For videos: first-frame capture.
+  // Stored at {year}/thumb/{uid}.jpg alongside the original at {year}/{type}/{uid}.{ext}.
+  // thumb_url is what the gallery displays; url is the full original (downloads/slideshows).
+  const thumbFile = formData.get('thumb')
+  let thumbUrl: string | null = null
+  if (thumbFile instanceof File && isImage) {
+    const thumbKey = `${year}/thumb/${uid}.jpg`
+    await c.env.BUCKET.put(thumbKey, thumbFile.stream(), {
+      httpMetadata: { contentType: 'image/jpeg' },
+    })
+    thumbUrl = `${c.env.BUCKET_PUBLIC_URL}/${thumbKey}`
+  }
+
   await db(c.env).from('media').insert({
     reunion_id: reunion.id,
     url,
+    thumb_url: thumbUrl,
     r2_key: key,
     type: mediaType,
     caption: (formData.get('caption') as string | null) || null,
     uploaded_by: (formData.get('uploaded_by') as string | null) || null,
   })
 
-  return c.json({ url, type: mediaType, key })
+  return c.json({ url, thumb_url: thumbUrl, type: mediaType, key })
 })
 
 // ─── Admin: auth check ────────────────────────────────────────────────────────

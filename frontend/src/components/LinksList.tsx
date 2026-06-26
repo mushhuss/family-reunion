@@ -1,3 +1,5 @@
+// Renders the links list as a responsive 2-column card grid (1 col on mobile).
+// Each card opens the link in a new tab with rel="noopener noreferrer" for security.
 import { ExternalLink } from 'lucide-react'
 import type { Link } from '../lib/types'
 

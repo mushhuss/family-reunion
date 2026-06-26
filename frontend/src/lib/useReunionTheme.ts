@@ -1,3 +1,6 @@
+// Convenience hook used by Photos, Program, and Links pages.
+// Fetches the reunion for the given year and returns its ReunionTheme.
+// Starts with 'default' while loading so sub-pages never flash unstyled.
 import { useEffect, useState } from 'react'
 import { getReunion } from './api'
 import { getReunionTheme } from './themes'

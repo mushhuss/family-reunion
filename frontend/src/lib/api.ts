@@ -1,3 +1,6 @@
+// All network calls to the Cloudflare Worker API.
+// The Worker is the only thing that touches Supabase — the frontend never calls Supabase directly.
+// VITE_API_URL: "http://localhost:8787" locally, Worker URL in production.
 import type { Reunion, Media, ProgramEvent, Link, Contact } from './types'
 
 const BASE = import.meta.env.VITE_API_URL as string
@@ -60,34 +63,60 @@ export const getContacts = (year: string) => get<Contact[]>(`/api/reunions/${yea
 
 // ─── Upload ───────────────────────────────────────────────────────────────────
 
+// XHR-based upload so callers get real byte-progress events.
+// Retries up to 3× (1.5s / 3s delays); resets progress to 0 on each retry.
+export async function uploadWithProgress(
+  file: File,
+  year: string,
+  onProgress: (pct: number) => void,
+  uploadedBy?: string,
+  caption?: string,
+  thumb?: File | null,
+): Promise<{ url: string; thumb_url: string | null; type: string; key: string }> {
+  let lastError: Error = new Error('Upload failed')
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      onProgress(0)
+      await new Promise(r => setTimeout(r, 1500 * attempt))
+    }
+    try {
+      return await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        const form = new FormData()
+        form.append('file', file)
+        form.append('year', year)
+        if (uploadedBy) form.append('uploaded_by', uploadedBy)
+        if (caption) form.append('caption', caption)
+        if (thumb) form.append('thumb', thumb)
+        xhr.upload.addEventListener('progress', e => {
+          if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
+        })
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try { resolve(JSON.parse(xhr.responseText)) } catch { reject(new Error('Invalid response')) }
+          } else {
+            reject(new Error(xhr.responseText || `Upload failed (${xhr.status})`))
+          }
+        })
+        xhr.addEventListener('error', () => reject(new Error('Network error')))
+        xhr.open('POST', `${BASE}/upload`)
+        xhr.send(form)
+      })
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+    }
+  }
+  throw lastError
+}
+
+// Kept for any callers that don't need progress (e.g. admin retry button)
 export async function uploadMedia(
   file: File,
   year: string,
   uploadedBy?: string,
   caption?: string,
 ): Promise<{ url: string; type: string; key: string }> {
-  let lastError: Error = new Error('Upload failed')
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await new Promise(r => setTimeout(r, 1500 * attempt))
-    try {
-      // Rebuild FormData each attempt — avoids any stream-already-consumed issues
-      const form = new FormData()
-      form.append('file', file)
-      form.append('year', year)
-      if (uploadedBy) form.append('uploaded_by', uploadedBy)
-      if (caption) form.append('caption', caption)
-
-      const res = await fetch(`${BASE}/upload`, { method: 'POST', body: form })
-      if (!res.ok) {
-        const msg = await res.text().catch(() => `Upload failed (${res.status})`)
-        throw new Error(msg)
-      }
-      return res.json() as Promise<{ url: string; type: string; key: string }>
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err))
-    }
-  }
-  throw lastError
+  return uploadWithProgress(file, year, () => {}, uploadedBy, caption)
 }
 
 // ─── Admin ────────────────────────────────────────────────────────────────────

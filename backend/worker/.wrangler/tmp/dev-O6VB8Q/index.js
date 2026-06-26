@@ -23642,7 +23642,7 @@ app.get("/api/reunions/:year/media", async (c) => {
   const reunion = await getReunionByYear(c.env, c.req.param("year"));
   if (!reunion)
     return c.json([]);
-  const { data } = await db(c.env).from("media").select("id, url, type, caption, uploaded_by").eq("reunion_id", reunion.id).order("created_at", { ascending: false });
+  const { data } = await db(c.env).from("media").select("id, url, thumb_url, type, caption, uploaded_by").eq("reunion_id", reunion.id).order("created_at", { ascending: false });
   return c.json(data ?? []);
 });
 app.get("/api/reunions/:year/video-count", async (c) => {
@@ -23697,20 +23697,31 @@ app.post("/upload", async (c) => {
     return c.json({ error: `No reunion found for year ${year}` }, 404);
   const mediaType = isVideo ? "video" : "photo";
   const ext = EXT_MAP[file.type];
-  const key = `${year}/${mediaType}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+  const uid = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+  const key = `${year}/${mediaType}/${uid}.${ext}`;
   await c.env.BUCKET.put(key, file.stream(), {
     httpMetadata: { contentType: file.type }
   });
   const url = `${c.env.BUCKET_PUBLIC_URL}/${key}`;
+  const thumbFile = formData.get("thumb");
+  let thumbUrl = null;
+  if (thumbFile instanceof File && isImage) {
+    const thumbKey = `${year}/thumb/${uid}.jpg`;
+    await c.env.BUCKET.put(thumbKey, thumbFile.stream(), {
+      httpMetadata: { contentType: "image/jpeg" }
+    });
+    thumbUrl = `${c.env.BUCKET_PUBLIC_URL}/${thumbKey}`;
+  }
   await db(c.env).from("media").insert({
     reunion_id: reunion.id,
     url,
+    thumb_url: thumbUrl,
     r2_key: key,
     type: mediaType,
     caption: formData.get("caption") || null,
     uploaded_by: formData.get("uploaded_by") || null
   });
-  return c.json({ url, type: mediaType, key });
+  return c.json({ url, thumb_url: thumbUrl, type: mediaType, key });
 });
 app.post("/admin/check", (c) => {
   if (!isAdmin(c.req.header("Authorization"), c.env.ADMIN_SECRET)) {

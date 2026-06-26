@@ -70,7 +70,7 @@ export default function AdminDashboard() {
 
 // ─── Reunions ────────────────────────────────────────────────────────────────
 
-const REUNION_BLANK = { year: '', title: '', welcome_message: '', hero_image_url: '', theme_slug: 'default', start_date: '' }
+const REUNION_BLANK = { year: '', title: '', welcome_message: '', hero_image_url: '', theme_slug: 'default', start_date: '', status: 'active', youtube_url: '' }
 
 function ReunionsTab({ token }: { token: string }) {
   const [rows, setRows] = useState<Reunion[]>([])
@@ -83,7 +83,7 @@ function ReunionsTab({ token }: { token: string }) {
 
   const startEdit = (r: Reunion) => {
     setEditId(r.id)
-    setForm({ year: String(r.year), title: r.title ?? '', welcome_message: r.welcome_message ?? '', hero_image_url: r.hero_image_url ?? '', theme_slug: r.theme_slug ?? 'default', start_date: r.start_date ?? '' })
+    setForm({ year: String(r.year), title: r.title ?? '', welcome_message: r.welcome_message ?? '', hero_image_url: r.hero_image_url ?? '', theme_slug: r.theme_slug ?? 'default', start_date: r.start_date ?? '', status: r.status ?? 'active', youtube_url: r.youtube_url ?? '' })
   }
 
   const cancelEdit = () => { setEditId(null); setForm(REUNION_BLANK) }
@@ -91,7 +91,7 @@ function ReunionsTab({ token }: { token: string }) {
   const save = async () => {
     setSaving(true)
     try {
-      const reunionBody = { ...form, year: Number(form.year), start_date: form.start_date || null }
+      const reunionBody = { ...form, year: Number(form.year), start_date: form.start_date || null, youtube_url: form.youtube_url || null }
       if (editId) {
         await updateReunion(editId, reunionBody, token)
         cancelEdit()
@@ -130,11 +130,32 @@ function ReunionsTab({ token }: { token: string }) {
               ))}
             </select>
           </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Reunion status</label>
+            <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} className={field}>
+              <option value="active">Active — uploads open</option>
+              <option value="locked">Locked — uploads closed</option>
+              <option value="archived">Archived — show slideshow</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-400">
+              {form.status === 'active' && 'Family members can upload photos and videos.'}
+              {form.status === 'locked' && 'Gallery is still visible but uploads are disabled.'}
+              {form.status === 'archived' && 'Gallery is hidden — paste a YouTube URL below to show the slideshow instead.'}
+            </p>
+          </div>
+          {form.status === 'archived' && (
+            <input
+              placeholder="YouTube URL (e.g. https://youtu.be/abc123)"
+              value={form.youtube_url}
+              onChange={e => setForm(f => ({ ...f, youtube_url: e.target.value }))}
+              className={`${field} sm:col-span-2`}
+            />
+          )}
         </div>
         <SaveBtn onClick={save} loading={saving} disabled={!form.year || !form.title} label={editId ? 'Update' : 'Save'} />
 
       </FormCard>
-      <Table<Reunion> rows={rows} onDelete={remove} onEdit={startEdit} columns={['year', 'title', 'welcome_message']} />
+      <Table<Reunion> rows={rows} onDelete={remove} onEdit={startEdit} columns={['year', 'title', 'status']} />
     </div>
   )
 }

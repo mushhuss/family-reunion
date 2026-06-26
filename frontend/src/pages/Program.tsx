@@ -1,3 +1,5 @@
+// Public program schedule page — fetches events for the year and renders
+// them via ProgramTimeline (day-tabbed view with colored pill tabs).
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
