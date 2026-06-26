@@ -61,7 +61,7 @@ app.get('/api/reunions/:year/media', async (c) => {
   const reunion = await getReunionByYear(c.env, c.req.param('year'))
   if (!reunion) return c.json([])
   const { data } = await db(c.env)
-    .from('media').select('*')
+    .from('media').select('id, url, type, caption, uploaded_by')
     .eq('reunion_id', reunion.id)
     .order('created_at', { ascending: false })
   return c.json(data ?? [])

@@ -5,6 +5,7 @@ export interface Reunion {
   welcome_message: string | null
   hero_image_url: string | null
   theme_slug: string
+  start_date: string | null  // first day of the reunion (Thursday), e.g. "2026-07-02"
   created_at: string
 }
 

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Clock, MapPin } from 'lucide-react'
 import type { ProgramEvent } from '../lib/types'
 
@@ -31,13 +32,25 @@ function groupByDate(events: ProgramEvent[]): [string, ProgramEvent[]][] {
   return Array.from(map.entries())
 }
 
-const DAY_COLORS = [
-  { bg: 'bg-reunion-600', light: 'bg-reunion-50 border-reunion-200' },
-  { bg: 'bg-reunion-700', light: 'bg-amber-50 border-amber-200' },
-  { bg: 'bg-reunion-800', light: 'bg-orange-50 border-orange-200' },
+const TAB_COLORS = [
+  { tab: '#DC2626', card: 'bg-red-50 border-red-200' },
+  { tab: '#D97706', card: 'bg-amber-50 border-amber-200' },
+  { tab: '#16A34A', card: 'bg-green-50 border-green-200' },
+  { tab: '#2563EB', card: 'bg-blue-50 border-blue-200' },
+  { tab: '#9333EA', card: 'bg-purple-50 border-purple-200' },
 ]
 
 export default function ProgramTimeline({ events }: Props) {
+  const groups = groupByDate(events)
+  const [activeDay, setActiveDay] = useState<string>(groups[0]?.[0] ?? '')
+
+  useEffect(() => {
+    if (groups.length > 0) {
+      const keys = groups.map(([k]) => k)
+      if (!keys.includes(activeDay)) setActiveDay(keys[0])
+    }
+  }, [events])
+
   if (events.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-gray-400">
@@ -46,70 +59,73 @@ export default function ProgramTimeline({ events }: Props) {
     )
   }
 
-  const groups = groupByDate(events)
+  const activeDayIndex = groups.findIndex(([k]) => k === activeDay)
+  const dayEvents = groups[activeDayIndex]?.[1] ?? []
+  const isTbd = activeDay === 'tbd'
+  const header = !isTbd && activeDay ? formatDayHeader(activeDay) : null
+  const color = TAB_COLORS[activeDayIndex % TAB_COLORS.length]
 
   return (
-    <div className="space-y-8">
-      {groups.map(([dateKey, dayEvents], dayIndex) => {
-        const color = DAY_COLORS[dayIndex % DAY_COLORS.length]
-        const isTbd = dateKey === 'tbd'
-        const header = isTbd ? null : formatDayHeader(dateKey)
-        const dayLabel = header
-          ? `Day ${dayIndex + 1} — ${header.weekday}`
-          : 'General'
+    <div>
+      {/* Day tabs */}
+      <div className="flex gap-2 flex-wrap mb-8">
+        {groups.map(([dateKey], i) => {
+          const tbd = dateKey === 'tbd'
+          const h = !tbd ? formatDayHeader(dateKey) : null
+          const isActive = activeDay === dateKey
+          const c = TAB_COLORS[i % TAB_COLORS.length]
+          return (
+            <button
+              key={dateKey}
+              onClick={() => setActiveDay(dateKey)}
+              className="rounded-full px-4 py-2 text-sm font-medium transition-all border-2 min-h-[40px]"
+              style={{
+                backgroundColor: isActive ? c.tab : 'transparent',
+                borderColor: c.tab,
+                color: isActive ? 'white' : c.tab,
+              }}
+            >
+              {tbd ? 'General' : `Day ${i + 1}${h ? ` · ${h.weekday}` : ''}`}
+            </button>
+          )
+        })}
+      </div>
 
-        return (
-          <div key={dateKey}>
-            {/* Day header */}
-            <div className="flex items-center gap-3 mb-4">
-              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${color.bg} text-white text-sm font-bold`}>
-                {isTbd ? '?' : dayIndex + 1}
-              </div>
-              <div>
-                <div className="font-bold text-gray-800 text-lg leading-tight">
-                  {dayLabel}
-                </div>
-                {header && (
-                  <div className="text-sm text-gray-500">{header.date}</div>
-                )}
-              </div>
-              <div className="flex-1 h-px bg-reunion-200 ml-2" />
-            </div>
+      {/* Date subtitle */}
+      {header && (
+        <p className="text-sm text-gray-400 mb-5">{header.date}</p>
+      )}
 
-            {/* Events for this day */}
-            <div className="ml-5 space-y-3 pl-8 border-l-2 border-reunion-100">
-              {dayEvents.map(event => (
-                <div
-                  key={event.id}
-                  className={`rounded-xl border p-4 ${color.light}`}
-                >
-                  <div className="font-semibold text-gray-800">{event.title}</div>
-                  <div className="mt-1.5 flex flex-wrap gap-3 text-xs text-gray-500">
-                    {(event.start_time || event.end_time) && (
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {formatTime(event.start_time)}
-                        {event.end_time && ` – ${formatTime(event.end_time)}`}
-                      </span>
-                    )}
-                    {event.location && (
-                      <span className="flex items-center gap-1">
-                        <MapPin className="h-3 w-3" />
-                        {event.location}
-                      </span>
-                    )}
-                  </div>
-                  {event.description && (
-                    <p className="mt-2 text-sm text-gray-600 leading-relaxed">
-                      {event.description}
-                    </p>
-                  )}
-                </div>
-              ))}
+      {/* Events */}
+      <div className="space-y-3">
+        {dayEvents.map(event => (
+          <div key={event.id} className={`rounded-xl border p-4 ${color.card}`}>
+            <div className="font-bold text-gray-800">{event.title}</div>
+            <div className="mt-1.5 flex flex-wrap gap-3 text-xs text-gray-500">
+              {(event.start_time || event.end_time) ? (
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {formatTime(event.start_time)}
+                  {event.end_time && ` – ${formatTime(event.end_time)}`}
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 italic text-gray-400">
+                  <Clock className="h-3 w-3" /> Time TBD
+                </span>
+              )}
+              {event.location && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="h-3 w-3" />
+                  {event.location}
+                </span>
+              )}
             </div>
+            {event.description && (
+              <p className="mt-2 text-sm text-gray-600 leading-relaxed">{event.description}</p>
+            )}
           </div>
-        )
-      })}
+        ))}
+      </div>
     </div>
   )
 }

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut, Trash2, Save, Loader2, Pencil, X, PlayCircle } from 'lucide-react'
+import { LogOut, Trash2, Save, Loader2, Pencil, X, PlayCircle, GripVertical } from 'lucide-react'
 import {
   getReunions, createReunion, deleteReunion, updateReunion,
   getProgram, createProgramEvent, deleteProgramEvent, updateProgramEvent,
@@ -70,7 +70,7 @@ export default function AdminDashboard() {
 
 // ─── Reunions ────────────────────────────────────────────────────────────────
 
-const REUNION_BLANK = { year: '', title: '', welcome_message: '', hero_image_url: '', theme_slug: 'default' }
+const REUNION_BLANK = { year: '', title: '', welcome_message: '', hero_image_url: '', theme_slug: 'default', start_date: '' }
 
 function ReunionsTab({ token }: { token: string }) {
   const [rows, setRows] = useState<Reunion[]>([])
@@ -83,7 +83,7 @@ function ReunionsTab({ token }: { token: string }) {
 
   const startEdit = (r: Reunion) => {
     setEditId(r.id)
-    setForm({ year: String(r.year), title: r.title ?? '', welcome_message: r.welcome_message ?? '', hero_image_url: r.hero_image_url ?? '', theme_slug: r.theme_slug ?? 'default' })
+    setForm({ year: String(r.year), title: r.title ?? '', welcome_message: r.welcome_message ?? '', hero_image_url: r.hero_image_url ?? '', theme_slug: r.theme_slug ?? 'default', start_date: r.start_date ?? '' })
   }
 
   const cancelEdit = () => { setEditId(null); setForm(REUNION_BLANK) }
@@ -91,11 +91,12 @@ function ReunionsTab({ token }: { token: string }) {
   const save = async () => {
     setSaving(true)
     try {
+      const reunionBody = { ...form, year: Number(form.year), start_date: form.start_date || null }
       if (editId) {
-        await updateReunion(editId, { ...form, year: Number(form.year) }, token)
+        await updateReunion(editId, reunionBody, token)
         cancelEdit()
       } else {
-        await createReunion({ ...form, year: Number(form.year) }, token)
+        await createReunion(reunionBody, token)
         setForm(REUNION_BLANK)
       }
       await load()
@@ -116,7 +117,12 @@ function ReunionsTab({ token }: { token: string }) {
           <input placeholder="Title (e.g. 2026 Hussaini Reunion)" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} className={field} />
           <textarea placeholder="Welcome message" value={form.welcome_message} onChange={e => setForm(f => ({ ...f, welcome_message: e.target.value }))} className={`${field} sm:col-span-2`} rows={3} />
           <input placeholder="Hero image URL (optional)" value={form.hero_image_url} onChange={e => setForm(f => ({ ...f, hero_image_url: e.target.value }))} className={`${field} sm:col-span-2`} />
-          <div className="sm:col-span-2">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-gray-500">Reunion start date (first day — usually Thursday)</label>
+            <input type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} className={field} />
+            <p className="text-xs text-gray-400">Sets Thu–Mon day pills in the Programs tab</p>
+          </div>
+          <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Theme</label>
             <select value={form.theme_slug} onChange={e => setForm(f => ({ ...f, theme_slug: e.target.value }))} className={field}>
               {Object.entries(THEMES).map(([slug, t]) => (
@@ -126,6 +132,7 @@ function ReunionsTab({ token }: { token: string }) {
           </div>
         </div>
         <SaveBtn onClick={save} loading={saving} disabled={!form.year || !form.title} label={editId ? 'Update' : 'Save'} />
+
       </FormCard>
       <Table<Reunion> rows={rows} onDelete={remove} onEdit={startEdit} columns={['year', 'title', 'welcome_message']} />
     </div>
@@ -136,6 +143,16 @@ function ReunionsTab({ token }: { token: string }) {
 
 const PROGRAM_BLANK = { title: '', description: '', event_date: '', start_time: '', end_time: '', location: '', sort_order: '0' }
 
+const REUNION_DAY_LABELS = ['Thu', 'Fri', 'Sat', 'Sun', 'Mon']
+
+function addDays(dateStr: string, days: number) {
+  const d = new Date(dateStr + 'T12:00:00')
+  d.setDate(d.getDate() + days)
+  return d.toISOString().split('T')[0]
+}
+
+const DAY_TAB_COLORS = ['#DC2626', '#D97706', '#16A34A', '#2563EB', '#9333EA']
+
 function ProgramTab({ token }: { token: string }) {
   const [reunions, setReunions] = useState<Reunion[]>([])
   const [rows, setRows] = useState<ProgramEvent[]>([])
@@ -143,10 +160,38 @@ function ProgramTab({ token }: { token: string }) {
   const [form, setForm] = useState(PROGRAM_BLANK)
   const [editId, setEditId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+  const [activeDay, setActiveDay] = useState<string>('')
+
+  const dayOptions = useMemo(() => {
+    const reunion = reunions.find(r => r.id === rid)
+    if (!reunion?.start_date) return null
+    return REUNION_DAY_LABELS.map((label, i) => {
+      const date = addDays(reunion.start_date!, i)
+      return { label, date, sub: new Date(date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' }) }
+    })
+  }, [reunions, rid])
 
   useEffect(() => {
     getReunions().then(data => { setReunions(data); if (data[0]) setRid(data[0].id) })
   }, [])
+
+  // Auto-select first day when reunion changes
+  useEffect(() => {
+    if (!rid) return
+    const reunion = reunions.find(r => r.id === rid)
+    if (reunion?.start_date) {
+      const firstDate = addDays(reunion.start_date, 0)
+      setActiveDay(firstDate)
+      setEditId(null)
+      setForm({ ...PROGRAM_BLANK, event_date: firstDate })
+    } else {
+      setActiveDay('')
+      setEditId(null)
+      setForm(PROGRAM_BLANK)
+    }
+  }, [rid])
 
   const load = (id: string) => {
     const year = reunions.find(r => r.id === id)?.year.toString() ?? ''
@@ -154,8 +199,47 @@ function ProgramTab({ token }: { token: string }) {
   }
   useEffect(() => { if (rid) load(rid) }, [rid])
 
+  const switchDay = (date: string) => {
+    setActiveDay(date)
+    if (!editId) {
+      setForm(f => ({ ...f, event_date: date === 'tbd' ? '' : date }))
+    }
+  }
+
+  const orderedRows = useMemo(() => {
+    if (!dragId || !dragOverId || dragId === dragOverId) return rows
+    const next = [...rows]
+    const from = next.findIndex(r => r.id === dragId)
+    const to = next.findIndex(r => r.id === dragOverId)
+    if (from === -1 || to === -1) return rows
+    const [item] = next.splice(from, 1)
+    next.splice(to, 0, item)
+    return next
+  }, [rows, dragId, dragOverId])
+
+  const filteredRows = useMemo(() => {
+    if (!dayOptions || !activeDay) return orderedRows
+    if (activeDay === 'tbd') return orderedRows.filter(r => !r.event_date)
+    return orderedRows.filter(r => r.event_date === activeDay)
+  }, [orderedRows, activeDay, dayOptions])
+
+  const handleDrop = async () => {
+    if (!dragId || !dragOverId || dragId === dragOverId) {
+      setDragId(null); setDragOverId(null); return
+    }
+    const next = [...rows]
+    const from = next.findIndex(r => r.id === dragId)
+    const to = next.findIndex(r => r.id === dragOverId)
+    const [item] = next.splice(from, 1)
+    next.splice(to, 0, item)
+    setRows(next)
+    setDragId(null); setDragOverId(null)
+    await Promise.all(next.map((r, i) => updateProgramEvent(r.id, { sort_order: i }, token)))
+  }
+
   const startEdit = (e: ProgramEvent) => {
     setEditId(e.id)
+    if (dayOptions) setActiveDay(e.event_date ?? 'tbd')
     setForm({
       title: e.title ?? '',
       description: e.description ?? '',
@@ -167,19 +251,23 @@ function ProgramTab({ token }: { token: string }) {
     })
   }
 
-  const cancelEdit = () => { setEditId(null); setForm(PROGRAM_BLANK) }
+  const cancelEdit = () => {
+    setEditId(null)
+    setForm({ ...PROGRAM_BLANK, event_date: activeDay && activeDay !== 'tbd' ? activeDay : '' })
+  }
 
   const save = async () => {
     setSaving(true)
     try {
       const body = { ...form, sort_order: Number(form.sort_order) || 0 }
+      const dateForDay = activeDay && activeDay !== 'tbd' ? activeDay : ''
       if (editId) {
         await updateProgramEvent(editId, body, token)
-        cancelEdit()
+        setEditId(null)
       } else {
         await createProgramEvent(rid, body, token)
-        setForm(PROGRAM_BLANK)
       }
+      setForm({ ...PROGRAM_BLANK, event_date: dateForDay })
       load(rid)
     } finally { setSaving(false) }
   }
@@ -193,15 +281,122 @@ function ProgramTab({ token }: { token: string }) {
         <div className="grid gap-3 sm:grid-cols-2">
           <input placeholder="Title*" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} className={`${field} sm:col-span-2`} />
           <textarea placeholder="Description" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className={`${field} sm:col-span-2`} rows={2} />
-          <input type="date" value={form.event_date} onChange={e => setForm(f => ({ ...f, event_date: e.target.value }))} className={field} />
-          <input placeholder="Location" value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} className={field} />
-          <input type="time" value={form.start_time} onChange={e => setForm(f => ({ ...f, start_time: e.target.value }))} className={field} />
-          <input type="time" value={form.end_time} onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))} className={field} />
-          <input type="number" placeholder="Sort order" value={form.sort_order} onChange={e => setForm(f => ({ ...f, sort_order: e.target.value }))} className={field} />
+          {dayOptions ? (
+            <div className="sm:col-span-2">
+              <label className="text-xs text-gray-400 mb-2 block">Day of reunion</label>
+              <div className="flex gap-2 flex-wrap">
+                {dayOptions.map(({ label, date, sub }) => {
+                  const isSelected = form.event_date === date
+                  return (
+                    <button
+                      key={date}
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, event_date: isSelected ? '' : date }))}
+                      className={`rounded-lg px-3 py-2 text-center border-2 transition-colors min-w-[58px] ${
+                        isSelected ? 'bg-reunion-600 text-white border-reunion-600' : 'bg-white text-gray-600 border-gray-200 hover:border-reunion-400 hover:text-reunion-600'
+                      }`}
+                    >
+                      <div className="text-sm font-semibold">{label}</div>
+                      <div className="text-xs opacity-75">{sub}</div>
+                    </button>
+                  )
+                })}
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, event_date: '' }))}
+                  className={`rounded-lg px-3 py-2 text-center border-2 transition-colors min-w-[58px] ${
+                    !form.event_date ? 'bg-gray-400 text-white border-gray-400' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-400'
+                  }`}
+                >
+                  <div className="text-sm font-semibold">TBD</div>
+                  <div className="text-xs opacity-75">No date</div>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-400">Date (set a start date on the reunion to get day pills instead)</label>
+              <input type="date" value={form.event_date} onChange={e => setForm(f => ({ ...f, event_date: e.target.value }))} className={field} />
+            </div>
+          )}
+          <input placeholder="Location (optional)" value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} className={field} />
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-400">Start time (optional)</label>
+            <input type="time" value={form.start_time} onChange={e => setForm(f => ({ ...f, start_time: e.target.value }))} className={field} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-400">End time (optional)</label>
+            <input type="time" value={form.end_time} onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))} className={field} />
+          </div>
         </div>
         <SaveBtn onClick={save} loading={saving} disabled={!form.title || !rid} label={editId ? 'Update' : 'Save'} />
       </FormCard>
-      <Table<ProgramEvent> rows={rows} onDelete={remove} onEdit={startEdit} columns={['title', 'event_date', 'start_time', 'location']} />
+
+      {/* Day filter tabs */}
+      {dayOptions && (
+        <div className="flex gap-2 flex-wrap">
+          {dayOptions.map(({ label, date, sub }, i) => {
+            const isActive = activeDay === date
+            const color = DAY_TAB_COLORS[i % DAY_TAB_COLORS.length]
+            return (
+              <button
+                key={date}
+                onClick={() => switchDay(date)}
+                className="rounded-full px-4 py-2 text-sm font-medium transition-all border-2"
+                style={{ backgroundColor: isActive ? color : 'transparent', borderColor: color, color: isActive ? 'white' : color }}
+              >
+                {label} · {sub}
+              </button>
+            )
+          })}
+          <button
+            onClick={() => switchDay('tbd')}
+            className="rounded-full px-4 py-2 text-sm font-medium transition-all border-2"
+            style={{ backgroundColor: activeDay === 'tbd' ? '#6B7280' : 'transparent', borderColor: '#6B7280', color: activeDay === 'tbd' ? 'white' : '#6B7280' }}
+          >
+            General
+          </button>
+        </div>
+      )}
+
+      {filteredRows.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-6">
+          {dayOptions ? 'No events for this day yet.' : 'Nothing here yet.'}
+        </p>
+      ) : (
+        <div className="rounded-xl bg-white shadow-sm border border-reunion-100 overflow-hidden">
+          <p className="px-4 pt-3 pb-1 text-xs text-gray-400">Drag to reorder</p>
+          {filteredRows.map(row => (
+            <div
+              key={row.id}
+              draggable
+              onDragStart={() => setDragId(row.id)}
+              onDragOver={e => { e.preventDefault(); setDragOverId(row.id) }}
+              onDrop={handleDrop}
+              onDragEnd={() => { setDragId(null); setDragOverId(null) }}
+              className={`flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 transition-colors select-none cursor-grab active:cursor-grabbing ${
+                dragId === row.id ? 'opacity-40' : ''
+              } ${dragOverId === row.id && dragId !== row.id ? 'bg-reunion-100' : 'hover:bg-reunion-50'}`}
+            >
+              <GripVertical className="h-4 w-4 text-gray-300 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-gray-700 truncate">{row.title}</div>
+                <div className="text-xs text-gray-400 mt-0.5">
+                  {[row.event_date, row.start_time, row.location].filter(Boolean).join(' · ') || 'No date or time set'}
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => startEdit(row)} className="rounded-lg p-1.5 text-gray-400 hover:bg-reunion-50 hover:text-reunion-600 transition-colors">
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button onClick={() => remove(row.id)} className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors">
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -217,6 +412,8 @@ function LinksTab({ token }: { token: string }) {
   const [form, setForm] = useState(LINK_BLANK)
   const [editId, setEditId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
 
   useEffect(() => {
     getReunions().then(data => { setReunions(data); if (data[0]) setRid(data[0].id) })
@@ -227,6 +424,31 @@ function LinksTab({ token }: { token: string }) {
     if (year) getLinks(year).then(setRows)
   }
   useEffect(() => { if (rid) load(rid) }, [rid])
+
+  const orderedRows = useMemo(() => {
+    if (!dragId || !dragOverId || dragId === dragOverId) return rows
+    const next = [...rows]
+    const from = next.findIndex(r => r.id === dragId)
+    const to = next.findIndex(r => r.id === dragOverId)
+    if (from === -1 || to === -1) return rows
+    const [item] = next.splice(from, 1)
+    next.splice(to, 0, item)
+    return next
+  }, [rows, dragId, dragOverId])
+
+  const handleDrop = async () => {
+    if (!dragId || !dragOverId || dragId === dragOverId) {
+      setDragId(null); setDragOverId(null); return
+    }
+    const next = [...rows]
+    const from = next.findIndex(r => r.id === dragId)
+    const to = next.findIndex(r => r.id === dragOverId)
+    const [item] = next.splice(from, 1)
+    next.splice(to, 0, item)
+    setRows(next)
+    setDragId(null); setDragOverId(null)
+    await Promise.all(next.map((r, i) => updateLink(r.id, { sort_order: i }, token)))
+  }
 
   const startEdit = (l: Link) => {
     setEditId(l.id)
@@ -260,11 +482,44 @@ function LinksTab({ token }: { token: string }) {
           <input placeholder="Title*" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} className={field} />
           <input placeholder="URL*" value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))} className={field} />
           <textarea placeholder="Description" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className={`${field} sm:col-span-2`} rows={2} />
-          <input type="number" placeholder="Sort order" value={form.sort_order} onChange={e => setForm(f => ({ ...f, sort_order: e.target.value }))} className={field} />
         </div>
         <SaveBtn onClick={save} loading={saving} disabled={!form.title || !form.url || !rid} label={editId ? 'Update' : 'Save'} />
       </FormCard>
-      <Table<Link> rows={rows} onDelete={remove} onEdit={startEdit} columns={['title', 'url', 'description']} />
+
+      {rows.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-6">Nothing here yet.</p>
+      ) : (
+        <div className="rounded-xl bg-white shadow-sm border border-reunion-100 overflow-hidden">
+          <p className="px-4 pt-3 pb-1 text-xs text-gray-400">Drag to reorder</p>
+          {orderedRows.map(row => (
+            <div
+              key={row.id}
+              draggable
+              onDragStart={() => setDragId(row.id)}
+              onDragOver={e => { e.preventDefault(); setDragOverId(row.id) }}
+              onDrop={handleDrop}
+              onDragEnd={() => { setDragId(null); setDragOverId(null) }}
+              className={`flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 transition-colors select-none cursor-grab active:cursor-grabbing ${
+                dragId === row.id ? 'opacity-40' : ''
+              } ${dragOverId === row.id && dragId !== row.id ? 'bg-reunion-100' : 'hover:bg-reunion-50'}`}
+            >
+              <GripVertical className="h-4 w-4 text-gray-300 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-gray-700 truncate">{row.title}</div>
+                <div className="text-xs text-gray-400 mt-0.5 truncate">{row.url}</div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => startEdit(row)} className="rounded-lg p-1.5 text-gray-400 hover:bg-reunion-50 hover:text-reunion-600 transition-colors">
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button onClick={() => remove(row.id)} className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors">
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
