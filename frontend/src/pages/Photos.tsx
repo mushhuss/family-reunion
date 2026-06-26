@@ -11,22 +11,7 @@ import type { Media, Reunion } from '../lib/types'
 import PhotoGrid from '../components/PhotoGrid'
 import PhotoUpload from '../components/PhotoUpload'
 import { useReunionTheme } from '../lib/useReunionTheme'
-
-// Extracts the video ID from any common YouTube URL format so we can build a clean embed URL.
-// Handles: watch?v=, youtu.be/, /embed/, and /shorts/.
-function extractYoutubeId(url: string): string | null {
-  const patterns = [
-    /[?&]v=([^&\s]+)/,
-    /youtu\.be\/([^?&\s]+)/,
-    /youtube\.com\/embed\/([^?&\s]+)/,
-    /youtube\.com\/shorts\/([^?&\s]+)/,
-  ]
-  for (const p of patterns) {
-    const m = url.match(p)
-    if (m?.[1]) return m[1]
-  }
-  return null
-}
+import { extractYoutubeId } from '../lib/utils'
 
 export default function Photos() {
   const { year } = useParams<{ year: string }>()

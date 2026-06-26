@@ -10,6 +10,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { createClient } from '@supabase/supabase-js'
+import { IMAGE_TYPES, VIDEO_TYPES, IMAGE_MAX, VIDEO_MAX, EXT_MAP, isAdmin as checkAdmin, getMediaType, isSizeAllowed } from './utils'
 
 type Bindings = {
   BUCKET: R2Bucket
@@ -17,19 +18,6 @@ type Bindings = {
   ADMIN_SECRET: string
   SUPABASE_URL: string
   SUPABASE_SERVICE_KEY: string
-}
-
-const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic'])
-const VIDEO_TYPES = new Set(['video/mp4', 'video/quicktime'])
-const IMAGE_MAX = 20 * 1024 * 1024
-const VIDEO_MAX = 500 * 1024 * 1024
-const EXT_MAP: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'image/heic': 'heic',
-  'video/mp4': 'mp4',
-  'video/quicktime': 'mov',
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -46,7 +34,7 @@ const db = (env: Bindings) =>
   })
 
 const isAdmin = (authHeader: string | null | undefined, secret: string) =>
-  authHeader === `Bearer ${secret}`
+  checkAdmin(authHeader, secret)
 
 // ─── Public: reunions ────────────────────────────────────────────────────────
 
@@ -134,12 +122,13 @@ app.post('/upload', async (c) => {
   const file = formData.get('file')
   if (!(file instanceof File)) return c.json({ error: 'Missing file field' }, 400)
 
-  const isImage = IMAGE_TYPES.has(file.type)
-  const isVideo = VIDEO_TYPES.has(file.type)
-  if (!isImage && !isVideo) return c.json({ error: 'Unsupported file type' }, 415)
+  const mediaType = getMediaType(file.type)
+  if (!mediaType) return c.json({ error: 'Unsupported file type' }, 415)
 
-  const maxSize = isVideo ? VIDEO_MAX : IMAGE_MAX
-  if (file.size > maxSize) {
+  const isImage = mediaType === 'photo'
+  const isVideo = mediaType === 'video'
+
+  if (!isSizeAllowed(file.size, file.type)) {
     return c.json({ error: `File too large (max ${isVideo ? '500 MB' : '20 MB'})` }, 413)
   }
 
@@ -147,7 +136,6 @@ app.post('/upload', async (c) => {
   const reunion = await getReunionByYear(c.env, year)
   if (!reunion) return c.json({ error: `No reunion found for year ${year}` }, 404)
 
-  const mediaType = isVideo ? 'video' : 'photo'
   const ext = EXT_MAP[file.type]
   const uid = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
   const key = `${year}/${mediaType}/${uid}.${ext}`

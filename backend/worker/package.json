@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test": "vitest run"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",
@@ -12,6 +13,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240924.0",
+    "vitest": "^4.1.9",
     "wrangler": "^3.78.0"
   }
 }

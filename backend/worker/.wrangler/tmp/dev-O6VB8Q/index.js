@@ -23605,7 +23605,7 @@ __name(shouldShowDeprecationWarning, "shouldShowDeprecationWarning");
 if (shouldShowDeprecationWarning())
   console.warn("\u26A0\uFE0F  Node.js 18 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 20 or later. For more information, visit: https://github.com/orgs/supabase/discussions/37217");
 
-// src/index.ts
+// src/utils.ts
 var IMAGE_TYPES = /* @__PURE__ */ new Set(["image/jpeg", "image/png", "image/webp", "image/heic"]);
 var VIDEO_TYPES = /* @__PURE__ */ new Set(["video/mp4", "video/quicktime"]);
 var IMAGE_MAX = 20 * 1024 * 1024;
@@ -23618,6 +23618,25 @@ var EXT_MAP = {
   "video/mp4": "mp4",
   "video/quicktime": "mov"
 };
+function isAdmin(authHeader, secret) {
+  return authHeader === `Bearer ${secret}`;
+}
+__name(isAdmin, "isAdmin");
+function getMediaType(mimeType) {
+  if (IMAGE_TYPES.has(mimeType))
+    return "photo";
+  if (VIDEO_TYPES.has(mimeType))
+    return "video";
+  return null;
+}
+__name(getMediaType, "getMediaType");
+function isSizeAllowed(size, mimeType) {
+  const max = VIDEO_TYPES.has(mimeType) ? VIDEO_MAX : IMAGE_MAX;
+  return size <= max;
+}
+__name(isSizeAllowed, "isSizeAllowed");
+
+// src/index.ts
 var app = new Hono2();
 app.use("*", cors({
   origin: "*",
@@ -23627,7 +23646,7 @@ app.use("*", cors({
 var db = /* @__PURE__ */ __name((env) => createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY, {
   auth: { persistSession: false }
 }), "db");
-var isAdmin = /* @__PURE__ */ __name((authHeader, secret) => authHeader === `Bearer ${secret}`, "isAdmin");
+var isAdmin2 = /* @__PURE__ */ __name((authHeader, secret) => isAdmin(authHeader, secret), "isAdmin");
 app.get("/api/reunions", async (c) => {
   const { data } = await db(c.env).from("reunions").select("*").order("year", { ascending: false });
   return c.json(data ?? []);
@@ -23683,19 +23702,18 @@ app.post("/upload", async (c) => {
   const file = formData.get("file");
   if (!(file instanceof File))
     return c.json({ error: "Missing file field" }, 400);
-  const isImage = IMAGE_TYPES.has(file.type);
-  const isVideo = VIDEO_TYPES.has(file.type);
-  if (!isImage && !isVideo)
+  const mediaType = getMediaType(file.type);
+  if (!mediaType)
     return c.json({ error: "Unsupported file type" }, 415);
-  const maxSize = isVideo ? VIDEO_MAX : IMAGE_MAX;
-  if (file.size > maxSize) {
+  const isImage = mediaType === "photo";
+  const isVideo = mediaType === "video";
+  if (!isSizeAllowed(file.size, file.type)) {
     return c.json({ error: `File too large (max ${isVideo ? "500 MB" : "20 MB"})` }, 413);
   }
   const year = formData.get("year") ?? String((/* @__PURE__ */ new Date()).getFullYear());
   const reunion = await getReunionByYear(c.env, year);
   if (!reunion)
     return c.json({ error: `No reunion found for year ${year}` }, 404);
-  const mediaType = isVideo ? "video" : "photo";
   const ext = EXT_MAP[file.type];
   const uid = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
   const key = `${year}/${mediaType}/${uid}.${ext}`;
@@ -23724,13 +23742,13 @@ app.post("/upload", async (c) => {
   return c.json({ url, thumb_url: thumbUrl, type: mediaType, key });
 });
 app.post("/admin/check", (c) => {
-  if (!isAdmin(c.req.header("Authorization"), c.env.ADMIN_SECRET)) {
+  if (!isAdmin2(c.req.header("Authorization"), c.env.ADMIN_SECRET)) {
     return c.json({ error: "Unauthorized" }, 401);
   }
   return c.json({ ok: true });
 });
 app.post("/admin/reunions", async (c) => {
-  if (!isAdmin(c.req.header("Authorization"), c.env.ADMIN_SECRET))
+  if (!isAdmin2(c.req.header("Authorization"), c.env.ADMIN_SECRET))
     return c.json({ error: "Unauthorized" }, 401);
   const body = await c.req.json();
   const { data, error } = await db(c.env).from("reunions").insert(body).select().single();
@@ -23739,13 +23757,13 @@ app.post("/admin/reunions", async (c) => {
   return c.json(data, 201);
 });
 app.delete("/admin/reunions/:id", async (c) => {
-  if (!isAdmin(c.req.header("Authorization"), c.env.ADMIN_SECRET))
+  if (!isAdmin2(c.req.header("Authorization"), c.env.ADMIN_SECRET))
     return c.json({ error: "Unauthorized" }, 401);
   await db(c.env).from("reunions").delete().eq("id", c.req.param("id"));
   return new Response(null, { status: 204 });
 });
 app.post("/admin/reunions/:id/program", async (c) => {
-  if (!isAdmin(c.req.header("Authorization"), c.env.ADMIN_SECRET))
+  if (!isAdmin2(c.req.header("Authorization"), c.env.ADMIN_SECRET))
     return c.json({ error: "Unauthorized" }, 401);
   const body = await c.req.json();
   const { data, error } = await db(c.env).from("program_events").insert({ ...body, reunion_id: c.req.param("id") }).select().single();
@@ -23754,13 +23772,13 @@ app.post("/admin/reunions/:id/program", async (c) => {
   return c.json(data, 201);
 });
 app.delete("/admin/program/:id", async (c) => {
-  if (!isAdmin(c.req.header("Authorization"), c.env.ADMIN_SECRET))
+  if (!isAdmin2(c.req.header("Authorization"), c.env.ADMIN_SECRET))
     return c.json({ error: "Unauthorized" }, 401);
   await db(c.env).from("program_events").delete().eq("id", c.req.param("id"));
   return new Response(null, { status: 204 });
 });
 app.post("/admin/reunions/:id/links", async (c) => {
-  if (!isAdmin(c.req.header("Authorization"), c.env.ADMIN_SECRET))
+  if (!isAdmin2(c.req.header("Authorization"), c.env.ADMIN_SECRET))
     return c.json({ error: "Unauthorized" }, 401);
   const body = await c.req.json();
   const { data, error } = await db(c.env).from("links").insert({ ...body, reunion_id: c.req.param("id") }).select().single();
@@ -23769,13 +23787,13 @@ app.post("/admin/reunions/:id/links", async (c) => {
   return c.json(data, 201);
 });
 app.delete("/admin/links/:id", async (c) => {
-  if (!isAdmin(c.req.header("Authorization"), c.env.ADMIN_SECRET))
+  if (!isAdmin2(c.req.header("Authorization"), c.env.ADMIN_SECRET))
     return c.json({ error: "Unauthorized" }, 401);
   await db(c.env).from("links").delete().eq("id", c.req.param("id"));
   return new Response(null, { status: 204 });
 });
 app.post("/admin/reunions/:id/contacts", async (c) => {
-  if (!isAdmin(c.req.header("Authorization"), c.env.ADMIN_SECRET))
+  if (!isAdmin2(c.req.header("Authorization"), c.env.ADMIN_SECRET))
     return c.json({ error: "Unauthorized" }, 401);
   const body = await c.req.json();
   const { data, error } = await db(c.env).from("contacts").insert({ ...body, reunion_id: c.req.param("id") }).select().single();
@@ -23784,13 +23802,13 @@ app.post("/admin/reunions/:id/contacts", async (c) => {
   return c.json(data, 201);
 });
 app.delete("/admin/contacts/:id", async (c) => {
-  if (!isAdmin(c.req.header("Authorization"), c.env.ADMIN_SECRET))
+  if (!isAdmin2(c.req.header("Authorization"), c.env.ADMIN_SECRET))
     return c.json({ error: "Unauthorized" }, 401);
   await db(c.env).from("contacts").delete().eq("id", c.req.param("id"));
   return new Response(null, { status: 204 });
 });
 app.patch("/admin/reunions/:id", async (c) => {
-  if (!isAdmin(c.req.header("Authorization"), c.env.ADMIN_SECRET))
+  if (!isAdmin2(c.req.header("Authorization"), c.env.ADMIN_SECRET))
     return c.json({ error: "Unauthorized" }, 401);
   const body = await c.req.json();
   const { data, error } = await db(c.env).from("reunions").update(body).eq("id", c.req.param("id")).select().single();
@@ -23799,7 +23817,7 @@ app.patch("/admin/reunions/:id", async (c) => {
   return c.json(data);
 });
 app.patch("/admin/program/:id", async (c) => {
-  if (!isAdmin(c.req.header("Authorization"), c.env.ADMIN_SECRET))
+  if (!isAdmin2(c.req.header("Authorization"), c.env.ADMIN_SECRET))
     return c.json({ error: "Unauthorized" }, 401);
   const body = await c.req.json();
   const { data, error } = await db(c.env).from("program_events").update(body).eq("id", c.req.param("id")).select().single();
@@ -23808,7 +23826,7 @@ app.patch("/admin/program/:id", async (c) => {
   return c.json(data);
 });
 app.patch("/admin/links/:id", async (c) => {
-  if (!isAdmin(c.req.header("Authorization"), c.env.ADMIN_SECRET))
+  if (!isAdmin2(c.req.header("Authorization"), c.env.ADMIN_SECRET))
     return c.json({ error: "Unauthorized" }, 401);
   const body = await c.req.json();
   const { data, error } = await db(c.env).from("links").update(body).eq("id", c.req.param("id")).select().single();
@@ -23817,7 +23835,7 @@ app.patch("/admin/links/:id", async (c) => {
   return c.json(data);
 });
 app.patch("/admin/contacts/:id", async (c) => {
-  if (!isAdmin(c.req.header("Authorization"), c.env.ADMIN_SECRET))
+  if (!isAdmin2(c.req.header("Authorization"), c.env.ADMIN_SECRET))
     return c.json({ error: "Unauthorized" }, 401);
   const body = await c.req.json();
   const { data, error } = await db(c.env).from("contacts").update(body).eq("id", c.req.param("id")).select().single();
@@ -23826,7 +23844,7 @@ app.patch("/admin/contacts/:id", async (c) => {
   return c.json(data);
 });
 app.delete("/admin/media/:id", async (c) => {
-  if (!isAdmin(c.req.header("Authorization"), c.env.ADMIN_SECRET))
+  if (!isAdmin2(c.req.header("Authorization"), c.env.ADMIN_SECRET))
     return c.json({ error: "Unauthorized" }, 401);
   const { data } = await db(c.env).from("media").select("r2_key").eq("id", c.req.param("id")).single();
   if (data?.r2_key)
