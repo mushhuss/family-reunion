@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { LogOut, Trash2, Save, Loader2, Pencil, X, PlayCircle, GripVertical } from 'lucide-react'
 import {
@@ -611,12 +611,21 @@ function ContactsTab({ token }: { token: string }) {
 
 // ─── Media ────────────────────────────────────────────────────────────────────
 
+// Admin grid: 2 cols mobile → 3 sm → 4 lg
+function adminPageSize() {
+  const cols = window.innerWidth >= 1024 ? 4 : window.innerWidth >= 640 ? 3 : 2
+  const itemH = window.innerWidth / cols
+  return Math.ceil((window.innerHeight * 1.5) / itemH) * cols
+}
+
 function MediaTab({ token }: { token: string }) {
   const [reunions, setReunions] = useState<Reunion[]>([])
   const [items, setItems] = useState<Media[]>([])
   const [rid, setRid] = useState('')
   const [deleting, setDeleting] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [visible, setVisible] = useState(() => adminPageSize())
+  const sentinelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     getReunions().then(data => { setReunions(data); if (data[0]) setRid(data[0].id) })
@@ -624,9 +633,21 @@ function MediaTab({ token }: { token: string }) {
 
   const load = (id: string) => {
     const year = reunions.find(r => r.id === id)?.year.toString() ?? ''
-    if (year) getPhotos(year).then(setItems)
+    if (year) getPhotos(year).then(data => { setItems(data); setVisible(adminPageSize()) })
   }
   useEffect(() => { if (rid) load(rid) }, [rid])
+
+  // Reveal the next batch when the sentinel scrolls near the viewport
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setVisible(v => Math.min(v + adminPageSize(), items.length)) },
+      { rootMargin: '400px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [items.length])
 
   const toggleSelect = (id: string) => {
     setSelected(prev => {
@@ -684,7 +705,7 @@ function MediaTab({ token }: { token: string }) {
         <p className="text-sm text-gray-400 text-center py-6">No media uploaded yet.</p>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {items.map(item => {
+          {items.slice(0, visible).map(item => {
             const isSelected = selected.has(item.id)
             const isDeleting = deleting.has(item.id)
             return (
@@ -751,6 +772,7 @@ function MediaTab({ token }: { token: string }) {
           })}
         </div>
       )}
+      <div ref={sentinelRef} />
     </div>
   )
 }
