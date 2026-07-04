@@ -709,15 +709,17 @@ function MediaTab({ token }: { token: string }) {
                 </div>
 
                 {item.type === 'video' ? (
-                  <div className="relative aspect-video bg-gray-100">
-                    <video src={item.url} preload="metadata" muted playsInline className="w-full h-full object-cover" />
+                  <div className="relative aspect-video bg-gray-900">
+                    {item.thumb_url && (
+                      <img src={item.thumb_url} alt={item.caption ?? 'Video'} className="w-full h-full object-cover" loading="lazy" />
+                    )}
                     <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                       <PlayCircle className="h-8 w-8 text-white drop-shadow" />
                     </div>
                   </div>
                 ) : (
                   <div className="aspect-square bg-gray-100">
-                    <img src={item.url} alt={item.caption ?? ''} className="w-full h-full object-cover" loading="lazy" />
+                    <img src={item.thumb_url ?? item.url} alt={item.caption ?? ''} className="w-full h-full object-cover" loading="lazy" />
                   </div>
                 )}
 
