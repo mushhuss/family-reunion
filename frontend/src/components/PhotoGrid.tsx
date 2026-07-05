@@ -95,7 +95,7 @@ export default function PhotoGrid({ items }: Props) {
                 <div className="relative aspect-video w-full bg-gray-900">
                   {item.thumb_url && (
                     <img
-                      src={item.thumb_url}
+                      src={item.preview_url ?? item.thumb_url}
                       alt={item.caption ?? 'Video'}
                       className="w-full h-full object-cover"
                       loading="lazy"
@@ -107,7 +107,7 @@ export default function PhotoGrid({ items }: Props) {
                 </div>
               ) : (
                 <img
-                  src={item.thumb_url ?? item.url}
+                  src={item.preview_url ?? item.thumb_url ?? item.url}
                   alt={item.caption ?? 'Family photo'}
                   className="w-full object-cover"
                   loading="lazy"

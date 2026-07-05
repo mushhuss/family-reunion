@@ -1,13 +1,15 @@
 // Drag-and-drop / file-picker upload component.
 //
-// Thumbnail strategy (runs entirely in the browser before upload):
-//   Photos  → generateThumb: Canvas-resizes to max 1200px wide, exports 82% JPEG.
-//             Returns the original File if: (a) already < 300KB, or (b) canvas can't decode
-//             the format (e.g. HEIC on Chrome). Returns null if the image fails to load at all.
-//   Videos  → captureVideoThumb: Creates a hidden <video> with preload="metadata", seeks to
-//             1s (or halfway), captures that frame to canvas. The 15s timeout handles codecs
-//             that never fire onseeked. The `settled` flag prevents double-resolve between
-//             the timeout path and the onseeked path.
+// Three-tier media storage per upload:
+//   preview_url → 400px JPEG (72% quality) — shown in grids/thumbnails everywhere
+//   thumb_url   → 1200px JPEG (82% quality) — shown in the lightbox
+//   url         → original file, untouched — used for downloads and slideshows
+//
+// Both previews are generated in the browser via Canvas before upload starts so the
+// Worker never needs to do any image processing.
+//
+// For videos: the 1200px frame is captured once via captureVideoThumb, then downsampled
+// to 400px for the preview — avoids seeking the video twice.
 //
 // The upload itself uses XMLHttpRequest (not fetch) because only XHR exposes upload.progress
 // events. Progress resets to 0 between retry attempts. Retries are handled in api.ts.
@@ -25,20 +27,18 @@ interface Props {
 
 const VIDEO_TYPES = new Set(['video/mp4', 'video/quicktime'])
 
-// Generate a 1200px-wide JPEG preview from an image file.
-// Returns null if the file can't be canvas-decoded (HEIC on Chrome, etc.).
-// Generate a 1200px-wide JPEG preview from an image file.
-// Returns null if the file can't be canvas-decoded (HEIC on Chrome, etc.).
-// Returns original file unchanged if it's already small (< 300KB) or already fits within 1200px.
-async function generateThumb(file: File): Promise<File | null> {
+// Resize a File (must be a browser-decodable image) to at most maxPx on its longest side,
+// then compress to JPEG at the given quality.
+// Returns null if the image can't be decoded (e.g. HEIC on Chrome).
+// Returns the original file unchanged if it's already within maxPx and under 300KB.
+async function generateResized(file: File, maxPx: number, quality: number): Promise<File | null> {
   return new Promise(resolve => {
     const img = new Image()
     const objectUrl = URL.createObjectURL(file)
 
     img.onload = () => {
       URL.revokeObjectURL(objectUrl)
-      const MAX = 1200
-      const scale = Math.min(1, MAX / Math.max(img.width, img.height))
+      const scale = Math.min(1, maxPx / Math.max(img.width, img.height))
       const w = Math.round(img.width * scale)
       const h = Math.round(img.height * scale)
 
@@ -52,8 +52,9 @@ async function generateThumb(file: File): Promise<File | null> {
       canvas.toBlob(blob => {
         if (!blob || blob.size >= file.size) { resolve(file); return }
         const stem = file.name.replace(/\.[^.]+$/, '')
-        resolve(new File([blob], `${stem}_thumb.jpg`, { type: 'image/jpeg', lastModified: file.lastModified }))
-      }, 'image/jpeg', 0.82)
+        const suffix = maxPx <= 400 ? '_preview' : '_thumb'
+        resolve(new File([blob], `${stem}${suffix}.jpg`, { type: 'image/jpeg', lastModified: file.lastModified }))
+      }, 'image/jpeg', quality)
     }
 
     img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(null) }
@@ -150,19 +151,23 @@ export default function PhotoUpload({ year, onUploaded }: Props) {
           setCurrentFileName(file.name)
           setProgress(0)
 
-          // Generate thumbnail before uploading — image resize or video frame capture
+          // Generate grid preview (400px) and lightbox thumb (1200px) before uploading.
+          // For videos: capture a frame at 1200px then downsample — avoids seeking twice.
           let thumb: File | null = null
+          let preview: File | null = null
+          setPreparing(true)
           if (VIDEO_TYPES.has(file.type)) {
-            setPreparing(true)
             setPreparingLabel('Capturing preview frame…')
             thumb = await captureVideoThumb(file)
-            setPreparing(false)
+            preview = thumb ? await generateResized(thumb, 400, 0.72) : null
           } else {
-            setPreparing(true)
-            setPreparingLabel('Generating preview…')
-            thumb = await generateThumb(file)
-            setPreparing(false)
+            setPreparingLabel('Generating previews…')
+            ;[thumb, preview] = await Promise.all([
+              generateResized(file, 1200, 0.82),
+              generateResized(file, 400, 0.72),
+            ])
           }
+          setPreparing(false)
 
           await uploadWithProgress(
             file,
@@ -171,6 +176,7 @@ export default function PhotoUpload({ year, onUploaded }: Props) {
             uploaderName.trim() || undefined,
             caption.trim() || undefined,
             thumb,
+            preview,
           )
           setUploadedName(file.name)
         }

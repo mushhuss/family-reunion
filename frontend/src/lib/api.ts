@@ -72,7 +72,8 @@ export async function uploadWithProgress(
   uploadedBy?: string,
   caption?: string,
   thumb?: File | null,
-): Promise<{ url: string; thumb_url: string | null; type: string; key: string }> {
+  preview?: File | null,
+): Promise<{ url: string; thumb_url: string | null; preview_url: string | null; type: string; key: string }> {
   let lastError: Error = new Error('Upload failed')
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) {
@@ -88,6 +89,7 @@ export async function uploadWithProgress(
         if (uploadedBy) form.append('uploaded_by', uploadedBy)
         if (caption) form.append('caption', caption)
         if (thumb) form.append('thumb', thumb)
+        if (preview) form.append('preview', preview)
         xhr.upload.addEventListener('progress', e => {
           if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
         })

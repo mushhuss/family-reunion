@@ -22,7 +22,8 @@ export interface Media {
   // Videos only have `url` — no thumbnail is generated (they get a canvas-captured frame instead,
   // which the Worker stores in `thumb_url` via the `thumb` form field in PhotoUpload.tsx).
   url: string           // original full-quality file (use for downloads/slideshow)
-  thumb_url: string | null  // 1200px compressed preview (use for gallery display)
+  thumb_url: string | null    // 1200px JPEG — used in the lightbox
+  preview_url: string | null  // 400px JPEG — used in grid thumbnails (fast loading)
   r2_key: string
   type: 'photo' | 'video'
   caption: string | null
