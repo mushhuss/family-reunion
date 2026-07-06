@@ -54,22 +54,23 @@ Change status via the Admin Dashboard → Reunions tab → edit the row. The You
 
 ---
 
-## Media Storage (Dual-Quality System)
+## Media Storage (Three-Tier System)
 
-To support ~80GB of uploaded photos without R2 egress costs making the gallery slow or expensive:
+To support ~80GB of uploaded photos without R2 egress costs making the gallery slow or expensive, every upload stores **three tiers** in R2:
 
-**For every photo upload, two files are stored in R2:**
-1. `{year}/photo/{timestamp}-{uuid}.{ext}` — the original full-quality file (never touched by compression)
-2. `{year}/thumb/{timestamp}-{uuid}.jpg` — a browser-generated 1200px JPEG (82% quality)
+| Tier | R2 path | Size | Used for |
+|---|---|---|---|
+| `preview_url` | `{year}/preview/{uid}.jpg` | ~400px, 72% JPEG (~20–50 KB) | Grid thumbnails everywhere — public gallery + admin |
+| `thumb_url` | `{year}/thumb/{uid}.jpg` | ~1200px, 82% JPEG (~200–400 KB) | Lightbox display only |
+| `url` | `{year}/{photo\|video}/{uid}.{ext}` | Original, untouched | Downloads and slideshows |
 
-The thumbnail is generated **in the browser** via Canvas API before the upload begins (`generateThumb` in `PhotoUpload.tsx`). It's sent as a separate `thumb` form field alongside the original.
+All resizing happens **in the browser** via Canvas API before the upload starts — no server-side image processing. The function is `generateResized(file, maxPx, quality)` in `PhotoUpload.tsx`. Both previews are generated in parallel with `Promise.all` for photos.
 
-**Gallery always shows `thumb_url`** — fast loads, low bandwidth.
-**Lightbox "Download Original" button links to `url`** — full quality for slideshows.
+**Why three tiers?** Desktop grids display items at ~250px wide but the old single 1200px thumbnail caused a "heart attack" loading 30+ items at once. The 400px preview is 5–10× smaller and imperceptible at grid size. The 1200px thumb is only fetched when the user opens the lightbox.
 
-R2 egress is **free**, so serving thumbnails costs nothing. Storage at $0.015/GB = ~$1.20/month for 80GB.
+**Videos:** `captureVideoThumb` seeks to 1s (or halfway) in a hidden `<video preload="metadata">` element and draws a frame to canvas at 1200px → stored as `thumb_url`. That file is then passed through `generateResized` at 400px to produce `preview_url`. This avoids seeking the video twice.
 
-**Videos** don't have a resized version — `captureVideoThumb` grabs the first video frame via a hidden `<video>` element and Canvas API. That frame JPEG is uploaded as the `thumb` field and stored the same way. With `preload="metadata"`, the browser only downloads enough of the video to seek — not the full clip.
+R2 egress is **free**. Storage at $0.015/GB — even with 3 tiers the preview + thumb combined are typically smaller than the original.
 
 ---
 
@@ -89,11 +90,19 @@ The gallery uses `IntersectionObserver` (not infinite scroll or timers) to load 
 ```
 family-reunion/
 ├── README.md
+├── ONBOARDING.md                   # Human developer onboarding guide
+├── .github/
+│   └── workflows/
+│       └── ci.yml                  # GitHub Actions: type-check → tests → Worker deploy on main
 ├── backend/
 │   ├── supabase/
 │   │   └── schema.sql              # Run once in Supabase SQL Editor
 │   └── worker/
-│       ├── src/index.ts            # Hono API — all routes
+│       ├── src/
+│       │   ├── index.ts            # Hono API — all routes
+│       │   ├── utils.ts            # Pure helpers: isAdmin, getMediaType, isSizeAllowed, EXT_MAP (unit-testable)
+│       │   └── utils.test.ts       # Vitest unit tests for utils.ts (16 tests)
+│       ├── vitest.config.ts        # Vitest config for the worker (node environment)
 │       ├── wrangler.toml           # R2 bucket binding + SUPABASE_URL + BUCKET_PUBLIC_URL
 │       ├── .dev.vars               # Local secrets (git-ignored: ADMIN_SECRET, SUPABASE_SERVICE_KEY)
 │       └── package.json
@@ -109,9 +118,12 @@ family-reunion/
     │   ├── main.tsx
     │   ├── index.css               # Tailwind + @font-face for PastelCrayon + font-readable utility
     │   ├── lib/
-    │   │   ├── api.ts              # All fetch calls to the Worker (get/post/patch/del helpers + uploadMedia with retry)
-    │   │   ├── types.ts            # TypeScript interfaces for all DB shapes (includes start_date on Reunion)
+    │   │   ├── api.ts              # All fetch calls to the Worker (get/post/patch/del helpers + uploadWithProgress with retry)
+    │   │   ├── types.ts            # TypeScript interfaces for all DB shapes (includes preview_url on Media)
+    │   │   ├── utils.ts            # Pure helpers: extractYoutubeId (unit-testable)
+    │   │   ├── utils.test.ts       # Vitest unit tests for utils.ts (8 tests)
     │   │   ├── themes.ts           # THEMES record, getReunionTheme(), pickTitleColors()
+    │   │   ├── themes.test.ts      # Vitest unit tests for themes.ts (10 tests)
     │   │   └── useReunionTheme.ts  # Hook: fetches reunion, returns its ReunionTheme
     │   ├── pages/
     │   │   ├── Home.tsx            # "Family Reunion" title (2 words, random colors); year selection post-its
@@ -121,19 +133,21 @@ family-reunion/
     │   │   ├── Links.tsx           # Links & resources
     │   │   └── admin/
     │   │       ├── AdminLogin.tsx      # Password form (validates against ADMIN_SECRET via Worker)
-    │   │       └── AdminDashboard.tsx  # Tabbed CRUD for all 5 tables; uses font-readable
+    │   │       └── AdminDashboard.tsx  # Tabbed CRUD for all 5 tables; uses font-readable; admin media grid is lazy-loaded
     │   └── components/
     │       ├── YearCard.tsx            # Post-it note style; random color + rotation per page load (useMemo stable within session)
     │       ├── PillarCard.tsx          # Clickable pillar tile; accepts unique `color` prop per pillar
     │       ├── ContactsModal.tsx        # Slide-up modal listing contacts for the year
-    │       ├── PhotoGrid.tsx           # Responsive photo grid (photos only; videos show count badge)
-    │       ├── PhotoUpload.tsx         # Drag-and-drop + file picker with retry logic + failedFiles state
+    │       ├── PhotoGrid.tsx           # Masonry grid with IntersectionObserver pagination; uses preview_url in grid, thumb_url in lightbox
+    │       ├── PhotoUpload.tsx         # Drag-and-drop + file picker; generates preview (400px) + thumb (1200px) in-browser before upload
     │       ├── ProgramTimeline.tsx     # Day-tabbed public program view (colored pill tabs, one tab per date)
     │       ├── LinksList.tsx           # Link cards
     │       └── decorations/
     │           ├── HomeSun.tsx         # Absolute-positioned SVG sun (top-right of Home)
     │           └── HomeGarden.tsx      # Full-width SVG flowers/grass/butterflies (Home footer)
     ├── vercel.json                 # SPA rewrite: all paths → /index.html (required for React Router)
+    ├── vite.config.ts              # Vite build config only (no test block — test config is in vitest.config.ts)
+    ├── vitest.config.ts            # Vitest config for frontend (node environment)
     ├── .env.example
     ├── tailwind.config.js
     └── package.json
@@ -214,7 +228,7 @@ Five tables, all accessed via the service key **from the Worker only**. Schema f
 
 ```
 reunions (id, year, title, welcome_message, hero_image_url, theme_slug, start_date, status, youtube_url, created_at)
-  └─ media (id, reunion_id, url, thumb_url, r2_key, type[photo|video], caption, uploaded_by, created_at)
+  └─ media (id, reunion_id, url, thumb_url, preview_url, r2_key, type[photo|video], caption, uploaded_by, created_at)
   └─ program_events (id, reunion_id, title, description, event_date, start_time, end_time, location, sort_order, created_at)
   └─ links (id, reunion_id, title, url, description, sort_order, created_at)
   └─ contacts (id, reunion_id, name, role, phone, email, sort_order)
@@ -224,7 +238,8 @@ reunions (id, year, title, welcome_message, hero_image_url, theme_slug, start_da
 - `reunions.status` — `'active' | 'locked' | 'archived'` (drives Photos page behavior, see Reunion Lifecycle above)
 - `reunions.youtube_url` — set when `status = 'archived'`; shown as embedded video on the Photos page
 - `media.url` — original full-quality R2 file; used for downloads and slideshows
-- `media.thumb_url` — browser-generated 1200px JPEG preview; used for gallery display (fast)
+- `media.thumb_url` — browser-generated 1200px JPEG; used **in the lightbox only**
+- `media.preview_url` — browser-generated 400px JPEG; used **everywhere in grids** (public gallery + admin) — 5–10× smaller than thumb_url
 
 ### Migration notes (for existing DBs)
 
@@ -242,8 +257,11 @@ alter table reunions add column status text not null default 'active'
   check (status in ('active', 'locked', 'archived'));
 alter table reunions add column youtube_url text;
 
--- Added for dual-quality photo storage (gallery shows thumb, downloads use original)
+-- Added for lightbox display (1200px JPEG)
 alter table media add column thumb_url text;
+
+-- Added for grid thumbnail display (400px JPEG) — three-tier storage
+alter table media add column preview_url text;
 ```
 
 ### `start_date` column
@@ -313,7 +331,8 @@ All routes live in `backend/worker/src/index.ts` (Hono). Admin routes require `A
 - Accepted video types: `video/mp4`, `video/quicktime` (max 500 MB)
 - R2 key format: `{year}/{photo|video}/{timestamp}-{8-char-uuid}.{ext}`
 - URL stored in DB: `{BUCKET_PUBLIC_URL}/{key}`
-- Media query selects: `id, url, thumb_url, type, caption, uploaded_by` (never `select('*')` to minimize data transfer; `r2_key` and `reunion_id` are server-side only)
+- FormData fields: `file` (required), `year`, `caption`, `uploaded_by`, `thumb` (1200px JPEG), `preview` (400px JPEG)
+- Media query selects: `id, url, thumb_url, preview_url, type, caption, uploaded_by` (never `select('*')` to minimize data transfer; `r2_key` and `reunion_id` are server-side only)
 
 ---
 
@@ -356,9 +375,39 @@ Standard CRUD table with sort_order field.
 
 ### Media tab
 - Grid view of all uploaded photos and videos for the selected reunion.
+- **Lazy-loaded**: same IntersectionObserver pagination as the public gallery (`adminPageSize()` — 2/3/4 columns by breakpoint, ~1.5 screen-heights initially). Never loads all items at once.
+- **Thumbnails only**: photos show `preview_url ?? thumb_url ?? url`; videos show their captured frame thumbnail + play icon overlay. No `<video>` elements in the grid — zero video data fetched during browsing.
 - **Multi-select delete**: click to select, "Select all" / "Clear" buttons, "Delete N" bulk button with confirmation.
 - Individual hover trash button still works for single items.
-- Videos show a play icon overlay and `preload="metadata"`.
+
+---
+
+## CI/CD Pipeline
+
+`.github/workflows/ci.yml` runs on every push to `main` and on all PRs targeting `main`.
+
+```
+push / PR → [test job] type-check (tsc) + vitest (frontend + worker)
+                ↓ (only on push to main, after test passes)
+            [deploy-worker job] npx wrangler deploy
+```
+
+**Jobs:**
+
+| Job | Trigger | Steps |
+|---|---|---|
+| `test` | push + PR | `npm ci` (frontend) → `npx tsc --noEmit` → `npm test` (vitest); then same for worker |
+| `deploy-worker` | push to `main` only, after `test` passes | `npx wrangler deploy` using `CLOUDFLARE_API_TOKEN` secret |
+
+**Secrets required** (set in GitHub repo → Settings → Secrets → Actions):
+- `CLOUDFLARE_API_TOKEN` — a Cloudflare API token with Workers Edit permission (never committed to code)
+
+**Frontend deploy** is handled by Vercel's GitHub integration (auto-deploys on push to `main`). Vercel Root Directory must be set to `frontend/` in the Vercel project settings — not `.` (repo root).
+
+**Unit tests** cover pure functions only (no DOM, no React components):
+- `frontend/src/lib/utils.test.ts` — `extractYoutubeId` (8 tests)
+- `frontend/src/lib/themes.test.ts` — `getReunionTheme`, `pickTitleColors` (10 tests)
+- `backend/worker/src/utils.test.ts` — `isAdmin`, `getMediaType`, `isSizeAllowed`, `EXT_MAP` (16 tests)
 
 ---
 
@@ -486,7 +535,7 @@ No code changes needed for a standard year:
 - **All DB access through the Worker** so the Supabase service key never reaches the browser. The frontend's only credential is `VITE_API_URL`.
 - **Admin auth is server-side only.** The Worker checks `Authorization: Bearer` against `ADMIN_SECRET`. The browser never receives or stores the correct password — it only gets 200 or 401. The password is held in `sessionStorage` (clears when tab closes).
 - **Reunion lifecycle (active → locked → archived).** `reunions.status` drives Photos page behavior. Flip to `locked` after the reunion to stop uploads; flip to `archived` + add `youtube_url` when the slideshow is ready. Only a DB row update — no redeployment.
-- **Dual-quality media storage.** Every photo upload stores two R2 files: the original and a browser-generated 1200px JPEG thumbnail. Gallery shows thumbnails (fast); lightbox "Download Original" links to the full-quality file. Browser Canvas generates the thumbnail client-side before upload — no server-side processing needed.
+- **Three-tier media storage.** Every upload stores three R2 files: `preview_url` (400px JPEG, ~20–50 KB) for all grid views, `thumb_url` (1200px JPEG, ~200–400 KB) for the lightbox only, and `url` (original, untouched) for downloads. Both previews are generated in the browser via Canvas API before upload starts — no server-side image processing. The 400px preview is 5–10× smaller than the old 1200px thumbnail, preventing the gallery from "having a heart attack" when 30+ items load on desktop. Old uploads with no `preview_url` fall back through `thumb_url ?? url`.
 - **Videos stored, not streamed.** Uploaded to R2, recorded in `media` with `type='video'`, but the frontend only renders `type='photo'` rows in the gallery. Videos get a canvas-captured frame as a thumbnail. A count badge shows how many are vaulted. Videos are a time capsule for later access via R2 or a future admin feature.
 - **No `<video>` in the gallery.** Video items show only a thumbnail + play icon. Clicking opens the lightbox, which then waits 800ms before setting `src` — this cancels cleanly on misclicks without triggering any video data fetch.
 - **IntersectionObserver pagination.** Photo grid starts with ~1.5 screen-heights of items, then pre-loads the next batch 500px before the sentinel enters view. No fixed page size — adapts to device dimensions.
